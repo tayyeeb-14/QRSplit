@@ -1,6 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { splitAmount } from './splitService.js'
+import { MAX_TRANCHE_CENTS, splitAmount } from './splitService.js'
 
-for (const [amount, count] of [[100, 2], [1999, 3], [2000, 3], [2001, 3], [4500, 3], [6800, 4], [10000, 5], [99.99, 3], [100.5, 3]]) test(`splits ${amount} into ${count}`, () => { const values = splitAmount(amount, count); assert.equal(values.length, count); assert.equal(Math.round(values.reduce((sum, value) => sum + value, 0) * 100), Math.round(amount * 100)) })
-test('rejects invalid amounts and counts', () => { assert.throws(() => splitAmount(0, 2)); assert.throws(() => splitAmount(-1, 2)); assert.throws(() => splitAmount(100, 0)); assert.throws(() => splitAmount(100, 101)) })
+const cents = value => Math.round(value * 100)
+
+for (const [amount, expected] of [[100, [100]], [1999, [1999]], [2000, [2000]], [2001, [2000, 1]], [4500, [2000, 2000, 500]], [6800, [2000, 2000, 2000, 800]], [10000, [2000, 2000, 2000, 2000, 2000]], [20000, Array(10).fill(2000)], [99.99, [99.99]], [100.5, [100.5]]]) test(`caps ${amount} into exact tranches`, () => {
+  const values = splitAmount(amount)
+  assert.deepEqual(values, expected)
+  assert.equal(values.every(value => cents(value) <= MAX_TRANCHE_CENTS), true)
+  assert.equal(cents(values.reduce((sum, value) => sum + value, 0)), cents(amount))
+})
+
+test('rejects invalid amounts', () => {
+  assert.throws(() => splitAmount(0))
+  assert.throws(() => splitAmount(-1))
+  assert.throws(() => splitAmount('not-an-amount'))
+})

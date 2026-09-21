@@ -12,6 +12,7 @@ import { Merchant, User, QrToken, PaymentRequest, Transaction, GroupSplit } from
 import { splitAmount } from './services/splitService.js'
 import { authMiddleware, adminMiddleware } from './middleware/auth.js'
 import { validVpa, verifyMerchantUpi } from './services/verificationService.js'
+import { paymentIntent } from './services/qrService.js'
 
 const app = express()
 app.use(helmet())
@@ -94,10 +95,10 @@ app.post('/api/merchant/revoke-qr', authMiddleware, wrap(async (req, res) => { a
 
 app.post('/api/payment-requests', authMiddleware, wrap(async (req, res) => {
   try {
-    const { amount, count = 1, description = '' } = req.body || {}
+    const { amount, description = '' } = req.body || {}
     const cents = amountCents(amount)
-    const values = splitAmount(cents / 100, count)
-    const request = await PaymentRequest.create({ merchant: req.merchant._id, description, amountCents: cents, tranches: values.map((value, index) => { const reference = `SP-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}-${index + 1}`; const query = new URLSearchParams({ pa: req.merchant.upiId, pn: req.merchant.businessName, am: value.toFixed(2), cu: 'INR', tr: reference }); return { amountCents: Math.round(value * 100), status: 'PENDING', reference, paymentIntent: `upi://pay?${query.toString()}` } }) })
+    const values = splitAmount(cents / 100)
+    const request = await PaymentRequest.create({ merchant: req.merchant._id, description, amountCents: cents, tranches: values.map((value, index) => { const reference = `SP-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}-${index + 1}`; return { amountCents: Math.round(value * 100), status: 'PENDING', reference, paymentIntent: paymentIntent({ upiId: req.merchant.upiId, merchantName: req.merchant.businessName, amount: value, reference }) } }) })
     await Transaction.insertMany(request.tranches.map(tranche => ({ merchant: req.merchant._id, paymentRequest: request._id, trancheId: tranche._id, transactionId: `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}`, amountCents: tranche.amountCents, description, status: 'PENDING', paymentReference: tranche.reference })))
     return ok(res, toPublicRequest(request), 'Payment requests created')
   } catch (error) { return fail(res, 400, error.message) }
